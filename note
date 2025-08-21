@@ -1,0 +1,44 @@
+Person 1: Server & Networking Core
+server that can accept connections, read/write data, and manage clients.
+Argument parsing and server socket setup (main.cpp, server.cpp)
+Poll/select loop and non-blocking I/O
+Client connection management (accept, disconnect, basic Client class)
+Low-level message receiving/sending, buffer management
+Signal handling and server shutdown
+
+
+Person 2: Protocol & Command Handling
+
+Command parsing and dispatch (cmd_handler.cpp, cmds/)
+Implementing IRC commands: NICK, USER, JOIN, PART, PRIVMSG, QUIT, etc.
+Channel management (Channel class, channel.cpp)
+Operator commands: KICK, INVITE, TOPIC, MODE
+User and channel permissions
+
+
+
+
+
+1. Set up your main entry point:
+
+Implement main() to parse <port> and <password>, validate them, and handle errors.
+2. Create the server socket:
+
+Create a TCP socket (IPv4).
+Set it to non-blocking mode using fcntl().
+Bind it to the specified port and listen for connections.
+3. Implement the event loop:
+
+Use poll() or select() to monitor the server socket and all client sockets.
+Accept new client connections and add them to your monitored set.
+4. Manage clients:
+
+Create a basic Client class or struct to store client info (socket, buffers).
+Store all connected clients in a container (e.g., std::map<int, Client>).
+5. Handle I/O:
+
+For each client socket ready for reading, read data into a buffer.
+For sockets ready for writing, send data from the buffer.
+6. Handle disconnects and errors:
+
+Remove clients that disconnect or encounter errors.
