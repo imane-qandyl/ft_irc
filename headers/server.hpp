@@ -10,6 +10,14 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <cstdlib>
+#include <sstream>
+#include <vector>
+#include <poll.h>
+#include <map>
+#include "client.hpp"
 
 class Server {
 
