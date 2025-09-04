@@ -5,11 +5,12 @@
 #include <unistd.h>
 #include <set>
 
-
 class Client {
 public:
     Client();
     Client(int fd);
+    Client(const Client& other);              // Copy constructor
+    Client& operator=(const Client& other);   // Assignment operator
     ~Client();
 
     void markReceivedData();

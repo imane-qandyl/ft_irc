@@ -1,7 +1,16 @@
 #include "../headers/server.hpp"
+#include "../headers/signals.hpp"
+
+// Define MSG_NOSIGNAL if not available (macOS compatibility)
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
 
 Server::Server(int port, const std::string& password)
-    : _port(port), _password(password), _server_fd(-1) {}
+    : _port(port), _password(password), _server_fd(-1) {
+    // Setup signal handling for graceful shutdown
+    setupSignalHandlers();
+}
 
 Server::~Server() {
     if (_server_fd != -1)
@@ -62,115 +71,256 @@ void Server::setupSocket() {
 
     freeaddrinfo(servinfo);
 }
+
 void Server::run() {
     std::vector<struct pollfd> fds;
-    std::map<int, Client> clients; // Map fd to Client object
-    // Add the server socket to pollfd vector
+    std::map<int, Client> clients;
+    std::map<int, time_t> client_last_activity;
+    
+    initializeServer(fds);
+    
+    while (!g_shutdown) {
+        int ret = poll(&fds[0], fds.size(), 1000);
+        if (handlePollError(ret)) break;
+        
+        time_t current_time = time(NULL);
+        handleClientTimeouts(clients, client_last_activity, fds, current_time);
+        
+        if (ret == 0) continue;
+        
+        if (fds[0].revents & POLLIN) {
+            handleNewConnection(fds, clients, client_last_activity, current_time);
+        }
+        
+        handleClientActivity(fds, clients, client_last_activity, current_time);
+    }
+    
+    shutdownServer(fds);
+}
+
+void Server::initializeServer(std::vector<struct pollfd>& fds) {
     struct pollfd server_pollfd;
     server_pollfd.fd = _server_fd;
     server_pollfd.events = POLLIN;
     fds.push_back(server_pollfd);
+    
+    std::cout << "[INFO] Server started on port " << _port << std::endl;
+    std::cout << "[INFO] Use CTRL+C for graceful shutdown" << std::endl;
+}
 
-    while (true) {
-        int ret = poll(&fds[0], fds.size(), -1);
-        if (ret < 0) {
-            std::cerr << "poll error" << std::endl;
-            break;
+bool Server::handlePollError(int ret) {
+    if (ret < 0) {
+        if (errno == EINTR) {
+            std::cout << "[INFO] Poll interrupted by signal" << std::endl;
+            return false;
         }
-        // Check for new connections
-        if (fds[0].revents & POLLIN) {
-            struct sockaddr_storage their_addr;
-            socklen_t addr_size = sizeof(their_addr);
-            int new_fd = accept(_server_fd, (struct sockaddr *)&their_addr, &addr_size);
-            if (new_fd >= 0) {
-                // Set the new socket to non-blocking mode
-                if (fcntl(new_fd, F_SETFL, O_NONBLOCK) < 0) {
-                    std::cerr << "fcntl error on new client socket" << std::endl;
-                    close(new_fd);
-                } else {
-                    std::cout << "New client connected: fd " << new_fd << std::endl;
-                    struct pollfd client_pollfd;
-                    client_pollfd.fd = new_fd;
-                    client_pollfd.events = POLLIN | POLLOUT; // Will send on next POLLOUT event
-                    fds.push_back(client_pollfd);
-                    clients[new_fd] = Client(new_fd);
-                    clients[new_fd].appendToSendBuffer("Welcome to the IRC server!\r\n");
-                    std::cout << "[DEBUG] Welcome message queued for fd " << new_fd << std::endl;
+        std::cerr << "[ERROR] Poll failed: " << strerror(errno) << std::endl;
+        return true;
+    }
+    return false;
+}
+
+void Server::handleClientTimeouts(std::map<int, Client>& clients, std::map<int, time_t>& client_last_activity, 
+                                std::vector<struct pollfd>& fds, time_t current_time) {
+    const int CLIENT_TIMEOUT = 300;
+    std::map<int, time_t>::iterator it = client_last_activity.begin();
+    
+    while (it != client_last_activity.end()) {
+        if (current_time - it->second > CLIENT_TIMEOUT) {
+            int timeout_fd = it->first;
+            std::cout << "[INFO] Client fd " << timeout_fd << " timed out" << std::endl;
+            
+            for (size_t i = 1; i < fds.size(); ++i) {
+                if (fds[i].fd == timeout_fd) {
+                    close(timeout_fd);
+                    clients.erase(timeout_fd);
+                    fds.erase(fds.begin() + i);
+                    break;
                 }
             }
+            client_last_activity.erase(it++);
+        } else {
+            ++it;
         }
-        // Check for activity on client sockets
-        for (size_t i = 1; i < fds.size(); ++i) {
-            // Check for errors or hangup first
-            if (fds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
-                std::cout << "[DEBUG] Client fd " << fds[i].fd << " disconnected (POLLERR/POLLHUP/POLLNVAL)" << std::endl;
-                close(fds[i].fd);
-                clients.erase(fds[i].fd);
-                fds.erase(fds.begin() + i);
+    }
+}
+
+void Server::handleNewConnection(std::vector<struct pollfd>& fds, std::map<int, Client>& clients,
+                               std::map<int, time_t>& client_last_activity, time_t current_time) {
+    struct sockaddr_storage their_addr;
+    socklen_t addr_size = sizeof(their_addr);
+    int new_fd = accept(_server_fd, (struct sockaddr *)&their_addr, &addr_size);
+    
+    if (new_fd >= 0) {
+        char client_ip[INET6_ADDRSTRLEN];
+        getClientIP(their_addr, client_ip);
+        
+        if (fcntl(new_fd, F_SETFL, O_NONBLOCK) < 0) {
+            std::cerr << "[ERROR] Failed to set non-blocking mode for client " << new_fd << std::endl;
+            close(new_fd);
+            return;
+        }
+        
+        std::cout << "[INFO] New client connected: fd " << new_fd << " from " << client_ip << std::endl;
+        
+        struct pollfd client_pollfd;
+        client_pollfd.fd = new_fd;
+        client_pollfd.events = POLLIN | POLLOUT;
+        fds.push_back(client_pollfd);
+        
+        clients.insert(std::make_pair(new_fd, Client(new_fd)));
+        client_last_activity[new_fd] = current_time;
+        
+        clients[new_fd].appendToSendBuffer("Welcome to the IRC server!\r\n");
+    }
+}
+
+void Server::handleClientActivity(std::vector<struct pollfd>& fds, std::map<int, Client>& clients,
+                                std::map<int, time_t>& client_last_activity, time_t current_time) {
+    for (size_t i = 1; i < fds.size(); ++i) {
+        int client_fd = fds[i].fd;
+        
+        if (fds[i].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            disconnectClient(client_fd, clients, client_last_activity, fds, i);
+            --i;
+            continue;
+        }
+        
+        if (fds[i].revents & POLLOUT) {
+            handleClientSend(fds[i], clients[client_fd], client_last_activity, current_time);
+        }
+        
+        if (fds[i].revents & POLLIN) {
+            if (handleClientReceive(client_fd, clients, client_last_activity, fds, current_time, i)) {
                 --i;
-                continue;
             }
+        }
+    }
+}
 
-            // Handle outgoing data first
-            if (fds[i].revents & POLLOUT) {
-                std::cout << "[DEBUG] POLLOUT event for fd " << fds[i].fd << std::endl;
-                Client& client = clients[fds[i].fd];
-                if (client.hasDataToSend()) {
-                    std::string& sendBuf = client.getSendBuffer();
-                    ssize_t sent = send(fds[i].fd, sendBuf.c_str(), sendBuf.size(), 0);
-                    std::cout << "[DEBUG] Attempting to send to fd " << fds[i].fd << ", buffer: '" << sendBuf << "', sent: " << sent << std::endl;
-                    if (sent > 0) {
-                        client.removeSentFromBuffer(sent);
-                        if (!client.hasDataToSend()) {
-                            fds[i].events = POLLIN; // Done sending, just listen for reads
-                        }
-                    } else if (sent < 0 && (errno != EAGAIN && errno != EWOULDBLOCK)) {
-                        std::cerr << "send error on fd " << fds[i].fd << std::endl;
-                        close(fds[i].fd);
-                        clients.erase(fds[i].fd);
-                        fds.erase(fds.begin() + i);
-                        --i;
-                        continue;
-                    }
-                } else {
-                    // No data to send, switch to only polling for input
-                    fds[i].events = POLLIN;
-                }
-            }
-            // Handle incoming data
-            if (fds[i].revents & POLLIN) {
-                char buf[512];
-                ssize_t n = recv(fds[i].fd, buf, sizeof(buf) - 1, 0);
+void Server::disconnectClient(int client_fd, std::map<int, Client>& clients, std::map<int, time_t>& client_last_activity,
+                            std::vector<struct pollfd>& fds, size_t index) {
+    std::cout << "[INFO] Client fd " << client_fd << " disconnected" << std::endl;
+    close(client_fd);
+    clients.erase(client_fd);
+    client_last_activity.erase(client_fd);
+    fds.erase(fds.begin() + index);
+}
 
-                if (n > 0) {
-                    buf[n] = '\0';
-                    clients[fds[i].fd].appendToBuffer(std::string(buf, n));
-                    clients[fds[i].fd].markReceivedData();
-                    // Process complete messages here
-                    std::cout << "Received data from " << fds[i].fd << ": " << std::string(buf, n) << std::endl;
-                } else if (n == 0) {
-                    // Connection closed by client - but only if they had sent data before
-                    if (clients[fds[i].fd].hasReceivedData()) {
-                        std::cout << "Client " << fds[i].fd << " disconnected." << std::endl;
-                        close(fds[i].fd);
-                        clients.erase(fds[i].fd);
-                        fds.erase(fds.begin() + i);
-                        --i;
-                        continue;
-                    }
-                    // If no data was ever received, don't disconnect - it's just a new idle client
-                } else { // n < 0
-                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                        std::cerr << "recv error on fd " << fds[i].fd << ": " << strerror(errno) << std::endl;
-                        close(fds[i].fd);
-                        clients.erase(fds[i].fd);
-                        fds.erase(fds.begin() + i);
-                        --i;
-                        continue;
-                    }
-                    // EAGAIN/EWOULDBLOCK means no data available right now, which is fine
-                }
+void Server::handleClientSend(struct pollfd& pfd, Client& client, std::map<int, time_t>& client_last_activity, time_t current_time) {
+    if (client.hasDataToSend()) {
+        std::string& sendBuf = client.getSendBuffer();
+        ssize_t sent = send(pfd.fd, sendBuf.c_str(), sendBuf.size(), MSG_NOSIGNAL);
+        
+        if (sent > 0) {
+            client.removeSentFromBuffer(sent);
+            client_last_activity[pfd.fd] = current_time;
+            
+            if (!client.hasDataToSend()) {
+                pfd.events = POLLIN;
             }
+        }
+    } else {
+        pfd.events = POLLIN;
+    }
+}
+
+bool Server::handleClientReceive(int client_fd, std::map<int, Client>& clients, std::map<int, time_t>& client_last_activity,
+                               std::vector<struct pollfd>& fds, time_t current_time, size_t index) {
+    char buf[512];
+    ssize_t n = recv(client_fd, buf, sizeof(buf) - 1, 0);
+    
+    if (n > 0) {
+        buf[n] = '\0';
+        client_last_activity[client_fd] = current_time;
+        clients[client_fd].appendToBuffer(std::string(buf, n));
+        clients[client_fd].markReceivedData();
+        
+        while (clients[client_fd].hasCompleteMessage()) {
+            std::string message = clients[client_fd].extractMessage();
+            processIRCCommand(client_fd, message, clients, fds);
+        }
+        return false;
+    } else if (n == 0 && clients[client_fd].hasReceivedData()) {
+        disconnectClient(client_fd, clients, client_last_activity, fds, index);
+        return true;
+    }
+    return false;
+}
+
+void Server::getClientIP(const struct sockaddr_storage& their_addr, char* client_ip) {
+    void* addr_ptr;
+    if (their_addr.ss_family == AF_INET) {
+        addr_ptr = &((struct sockaddr_in*)&their_addr)->sin_addr;
+    } else {
+        addr_ptr = &((struct sockaddr_in6*)&their_addr)->sin6_addr;
+    }
+    
+    if (inet_ntop(their_addr.ss_family, addr_ptr, client_ip, INET6_ADDRSTRLEN) == NULL) {
+        strcpy(client_ip, "unknown");
+    }
+}
+
+void Server::shutdownServer(std::vector<struct pollfd>& fds) {
+    std::cout << "[INFO] Shutting down server gracefully..." << std::endl;
+    for (size_t i = 1; i < fds.size(); ++i) {
+        std::string goodbye = "Server shutting down. Goodbye!\r\n";
+        send(fds[i].fd, goodbye.c_str(), goodbye.length(), MSG_NOSIGNAL);
+        close(fds[i].fd);
+    }
+    std::cout << "[INFO] Server shutdown complete" << std::endl;
+}
+
+void Server::processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds) {
+    std::istringstream iss(message);
+    std::string command;
+    iss >> command;
+    
+    // Convert to uppercase for case-insensitive comparison
+    std::transform(command.begin(), command.end(), command.begin(), ::toupper);
+    
+    if (command == "NICK") {
+        std::string nickname;
+        iss >> nickname;
+        if (!nickname.empty()) {
+            clients[client_fd].setNickname(nickname);
+            std::cout << "[INFO] Client fd " << client_fd << " set nickname to: " << nickname << std::endl;
+            
+            std::string response = ":" + std::string("server") + " 001 " + nickname + " :Welcome " + nickname + "!\r\n";
+            clients[client_fd].appendToSendBuffer(response);
+        }
+    }
+    else if (command == "USER") {
+        std::string username, hostname, servername, realname;
+        iss >> username >> hostname >> servername;
+        std::getline(iss, realname); // Rest of the line is realname
+        
+        if (!username.empty()) {
+            clients[client_fd].setUsername(username);
+            std::cout << "[INFO] Client fd " << client_fd << " set username to: " << username << std::endl;
+        }
+    }
+    else if (command == "PING") {
+        std::string server;
+        iss >> server;
+        std::string response = "PONG " + server + "\r\n";
+        clients[client_fd].appendToSendBuffer(response);
+        std::cout << "[DEBUG] Responded to PING from fd " << client_fd << std::endl;
+    }
+    else if (command == "QUIT") {
+        std::string response = ":" + std::string("server") + " ERROR :Closing Link\r\n";
+        clients[client_fd].appendToSendBuffer(response);
+        std::cout << "[INFO] Client fd " << client_fd << " requested quit" << std::endl;
+    }
+    else {
+        std::cout << "[DEBUG] Unknown command from fd " << client_fd << ": " << command << std::endl;
+    }
+    
+    // Switch to POLLOUT if we have data to send
+    for (size_t i = 1; i < fds.size(); ++i) {
+        if (fds[i].fd == client_fd && clients[client_fd].hasDataToSend()) {
+            fds[i].events = POLLIN | POLLOUT;
+            break;
         }
     }
 }
