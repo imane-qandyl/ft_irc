@@ -1,10 +1,10 @@
 #include "client.hpp"
 
-Client::Client() : _fd(-1), _receivedData(false) {
+Client::Client() : _fd(-1), _receivedData(false), _authenticated(false), _passwordProvided(false) {
     std::cout << "Client default constructor called" << std::endl;
 }
 
-Client::Client(int fd) : _fd(fd), _receivedData(false) {
+Client::Client(int fd) : _fd(fd), _receivedData(false), _authenticated(false), _passwordProvided(false) {
     std::cout << "Client constructor called for fd " << fd << std::endl;
 }
 
@@ -13,7 +13,9 @@ Client::Client(const Client& other)
     : _fd(other._fd), _receivedData(other._receivedData), 
       _buffer(other._buffer), _sendBuffer(other._sendBuffer),
       _nickname(other._nickname), _username(other._username),
-      _channels(other._channels) {
+      _realname(other._realname), _hostname(other._hostname),
+      _channels(other._channels), _authenticated(other._authenticated),
+      _passwordProvided(other._passwordProvided) {
     std::cout << "Client copy constructor called for fd " << _fd << std::endl;
 }
 
@@ -27,7 +29,11 @@ Client& Client::operator=(const Client& other) {
         _sendBuffer = other._sendBuffer;
         _nickname = other._nickname;
         _username = other._username;
+        _realname = other._realname;
+        _hostname = other._hostname;
         _channels = other._channels;
+        _authenticated = other._authenticated;
+        _passwordProvided = other._passwordProvided;
         std::cout << "Client assignment operator called for fd " << _fd << std::endl;
     }
     return *this;
@@ -116,3 +122,61 @@ void Client::joinChannel(const std::string& channel) { _channels.insert(channel)
 void Client::leaveChannel(const std::string& channel) { _channels.erase(channel); }
 const std::set<std::string>& Client::getChannels() const { return _channels; }
 
+// Channel management (pointer-based)
+void Client::addChannel(Channel* channel) {
+    if (channel) {
+        _channelPointers.insert(channel);
+        _channels.insert(channel->getName());
+        std::cout << "[DEBUG] Client " << _nickname << " added to channel " << channel->getName() << std::endl;
+    }
+}
+
+void Client::removeChannel(Channel* channel) {
+    if (channel) {
+        _channelPointers.erase(channel);
+        _channels.erase(channel->getName());
+        std::cout << "[DEBUG] Client " << _nickname << " removed from channel " << channel->getName() << std::endl;
+    }
+}
+
+// Authentication methods
+bool Client::isAuthenticated() const {
+    return _authenticated && _passwordProvided && !_nickname.empty() && !_username.empty();
+}
+
+void Client::setAuthenticated(bool auth) {
+    _authenticated = auth;
+}
+
+// Password authentication
+void Client::setPasswordProvided(bool provided) {
+    _passwordProvided = provided;
+}
+
+bool Client::hasPasswordProvided() const {
+    return _passwordProvided;
+}
+
+// Realname methods
+void Client::setRealname(const std::string& realname) {
+    _realname = realname;
+}
+
+const std::string& Client::getRealname() const {
+    return _realname;
+}
+
+// Hostname methods
+void Client::setHostname(const std::string& hostname) {
+    _hostname = hostname;
+}
+
+const std::string& Client::getHostname() const {
+    return _hostname;
+}
+
+// Message sending
+void Client::sendMessage(const std::string& message) {
+    std::cout << "[DEBUG] Sending message to fd " << _fd << ": " << message;
+    appendToSendBuffer(message);
+}

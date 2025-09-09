@@ -7,14 +7,55 @@
 #endif
 
 Server::Server(int port, const std::string& password)
-    : _port(port), _password(password), _server_fd(-1) {
-    // Setup signal handling for graceful shutdown
+    : _port(port), _password(password), _server_fd(-1), _currentClients(NULL) { // Add _currentClients(NULL)
     setupSignalHandlers();
+}
+
+// Add this method:
+void Server::setCurrentClients(std::map<int, Client>* clients) {
+    _currentClients = clients;
 }
 
 Server::~Server() {
     if (_server_fd != -1)
         close(_server_fd);
+}
+
+// Channel management methods
+Channel* Server::getChannel(const std::string& name) {
+    std::map<std::string, Channel*>::iterator it = _channels.find(name);
+    if (it != _channels.end()) {
+        return it->second;
+    }
+    return NULL;
+}
+
+Channel* Server::createChannel(const std::string& name) {
+    // Check if channel already exists
+    Channel* existing = getChannel(name);
+    if (existing) {
+        return existing;
+    }
+    
+    // Create new channel
+    Channel* newChannel = new Channel(name);
+    if (newChannel) {
+        _channels[name] = newChannel;
+        std::cout << "[INFO] Created new channel: " << name << std::endl;
+        return newChannel;
+    }
+    
+    std::cerr << "[ERROR] Failed to create channel: " << name << std::endl;
+    return NULL;
+}
+
+void Server::removeChannel(const std::string& name) {
+    std::map<std::string, Channel*>::iterator it = _channels.find(name);
+    if (it != _channels.end()) {
+        delete it->second;
+        _channels.erase(it);
+        std::cout << "[INFO] Removed channel: " << name << std::endl;
+    }
 }
 
 void Server::setupSocket() {
@@ -272,18 +313,203 @@ void Server::shutdownServer(std::vector<struct pollfd>& fds) {
 }
 
 void Server::processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds) {
+    setCurrentClients(&clients);
     std::cout << "[DEBUG] Received from fd " << client_fd << ": " << message << std::endl;
     
-    // Echo back for testing - remove IRC command processing
-    std::string response = "ECHO: " + message + "\r\n";
-    clients[client_fd].appendToSendBuffer(response);
+    // Parse the IRC command
+    std::istringstream iss(message);
+    std::string command;
+    std::vector<std::string> params;
     
+    // Extract command
+    if (!(iss >> command)) {
+        return; // Empty message
+    }
+    
+    // Convert command to uppercase for case-insensitive comparison
+    std::transform(command.begin(), command.end(), command.begin(), ::toupper);
+    
+    // Extract parameters
+    std::string param;
+    while (iss >> param) {
+        // Handle parameters that start with ':'
+        if (param[0] == ':') {
+            // Rest of the line is one parameter
+            std::string rest;
+            std::getline(iss, rest);
+            param = param.substr(1) + rest; // Remove ':' and add rest
+            params.push_back(param);
+            break;
+        }
+        params.push_back(param);
+    }
+    
+    // Get client reference
+    Client& client = clients[client_fd];
+    
+    // Handle different IRC commands
+    if (command == "JOIN") {
+        Join::execute(*this, client, params);
+    }
+    else if (command == "INVITE") {  // Add this
+        Invite::execute(*this, client, params);
+    }
+    else if (command == "PART") {  // Add this - PART is the standard IRC command for leaving
+        Leave::execute(*this, client, params);
+    }
+    else if (command == "LEAVE") {  // Add this as alias for PART
+        Leave::execute(*this, client, params);
+    }
+    else if (command == "MODE") {
+        Mode::execute(*this, client, params);
+    }
+    else if (command == "TOPIC") {  // Add this line
+        Topic::execute(*this, client, params);
+    }
+    else if (command == "PASS") {
+        handlePassCommand(client, params);
+    }
+    else if (command == "NICK") {
+        handleNickCommand(client, params);
+    }
+    else if (command == "USER") {
+        handleUserCommand(client, params);
+    }
+    else if (command == "PING") {
+        handlePingCommand(client, params);
+    }
+    else if (command == "QUIT") {
+        handleQuitCommand(client, params, clients, fds, client_fd);
+    }
+    else {
+        // Unknown command
+        client.sendMessage("421 " + client.getNickname() + " " + command + " :Unknown command\r\n");
+    }
+    setCurrentClients(NULL);
     // Switch to POLLOUT if we have data to send
     for (size_t i = 1; i < fds.size(); ++i) {
-        if (fds[i].fd == client_fd && clients[client_fd].hasDataToSend()) {
+        if (fds[i].fd == client_fd && client.hasDataToSend()) {
             fds[i].events = POLLIN | POLLOUT;
             break;
         }
     }
 }
 
+// Add these helper methods to handle basic IRC commands
+void Server::handlePassCommand(Client& client, const std::vector<std::string>& params) {
+    if (params.empty()) {
+        client.sendMessage("461 PASS :Not enough parameters\r\n");
+        return;
+    }
+    
+    if (params[0] == _password) {
+        client.setPasswordProvided(true);
+        std::cout << "[DEBUG] Client " << client.getFd() << " provided correct password" << std::endl;
+    } else {
+        client.sendMessage("464 :Password incorrect\r\n");
+        std::cout << "[DEBUG] Client " << client.getFd() << " provided incorrect password" << std::endl;
+    }
+}
+
+void Server::handleNickCommand(Client& client, const std::vector<std::string>& params) {
+    if (params.empty()) {
+        client.sendMessage("431 :No nickname given\r\n");
+        return;
+    }
+    
+    std::string nick = params[0];
+    
+    // Basic nickname validation
+    if (nick.empty() || nick.length() > 9) {
+        client.sendMessage("432 " + nick + " :Erroneous nickname\r\n");
+        return;
+    }
+    
+    // TODO: Check if nickname is already in use
+    
+    std::string oldNick = client.getNickname();
+    client.setNickname(nick);
+    
+    if (oldNick.empty()) {
+        std::cout << "[DEBUG] Client " << client.getFd() << " set nickname to " << nick << std::endl;
+    } else {
+        std::cout << "[DEBUG] Client " << client.getFd() << " changed nickname from " << oldNick << " to " << nick << std::endl;
+        // Notify about nick change
+        client.sendMessage(":" + oldNick + " NICK " + nick + "\r\n");
+    }
+    
+    checkClientRegistration(client);
+}
+
+void Server::handleUserCommand(Client& client, const std::vector<std::string>& params) {
+    if (params.size() < 4) {
+        client.sendMessage("461 USER :Not enough parameters\r\n");
+        return;
+    }
+    
+    client.setUsername(params[0]);
+    client.setHostname("localhost"); // Simplified
+    client.setRealname(params[3]);
+    
+    std::cout << "[DEBUG] Client " << client.getFd() << " set user info: " << params[0] << std::endl;
+    
+    checkClientRegistration(client);
+}
+
+void Server::handlePingCommand(Client& client, const std::vector<std::string>& params) {
+    if (params.empty()) {
+        client.sendMessage("409 :No origin specified\r\n");
+        return;
+    }
+    
+    client.sendMessage("PONG :" + params[0] + "\r\n");
+}
+
+void Server::handleQuitCommand(Client& client, const std::vector<std::string>& params, 
+                              std::map<int, Client>& clients, std::vector<struct pollfd>& fds, int client_fd) {
+    std::string quitMsg = params.empty() ? "Client quit" : params[0];
+    
+    // Remove client from all channels
+    // TODO: Implement channel cleanup
+    
+    client.sendMessage("ERROR :Closing connection: " + quitMsg + "\r\n");
+    
+    // Disconnect the client
+    for (size_t i = 1; i < fds.size(); ++i) {
+        if (fds[i].fd == client_fd) {
+            close(client_fd);
+            clients.erase(client_fd);
+            fds.erase(fds.begin() + i);
+            break;
+        }
+    }
+}
+
+void Server::checkClientRegistration(Client& client) {
+    if (client.hasPasswordProvided() && !client.getNickname().empty() && !client.getUsername().empty()) {
+        if (!client.isAuthenticated()) {
+            client.setAuthenticated(true);
+            
+            // Send welcome messages
+            std::string nick = client.getNickname();
+            client.sendMessage("001 " + nick + " :Welcome to the IRC Network " + nick + "\r\n");
+            client.sendMessage("002 " + nick + " :Your host is localhost, running version 1.0\r\n");
+            client.sendMessage("003 " + nick + " :This server was created today\r\n");
+            client.sendMessage("004 " + nick + " localhost 1.0 o o\r\n");
+            
+            std::cout << "[INFO] Client " << client.getFd() << " (" << nick << ") successfully registered" << std::endl;
+        }
+    }
+}
+
+// Replace the broken findClientByNickname method:
+Client* Server::findClientByNickname(const std::string& nickname) {
+    if (!_currentClients) return NULL;
+    
+    for (std::map<int, Client>::iterator it = _currentClients->begin(); it != _currentClients->end(); ++it) {
+        if (it->second.getNickname() == nickname) {
+            return &(it->second);
+        }
+    }
+    return NULL;
+}
