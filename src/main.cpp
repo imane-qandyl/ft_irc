@@ -1,4 +1,4 @@
-#include "../headers/server.hpp"
+#include "server.hpp"
 
 int main(int argc, char** argv) {
     if (argc != 3) {

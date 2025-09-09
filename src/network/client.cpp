@@ -1,5 +1,4 @@
-#include "../headers/client.hpp"
-#include <iostream>
+#include "client.hpp"
 
 Client::Client() : _fd(-1), _receivedData(false) {
     std::cout << "Client default constructor called" << std::endl;

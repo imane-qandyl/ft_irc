@@ -1,6 +1,5 @@
-#include "../headers/channel.hpp"
-#include "../headers/client.hpp"
-#include <iostream>
+#include "channel.hpp"
+#include "client.hpp"
 
 Channel::Channel(const std::string& name) : _name(name) {
     std::cout << "[INFO] Channel " << name << " created" << std::endl;

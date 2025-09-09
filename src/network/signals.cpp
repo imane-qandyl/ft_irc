@@ -1,5 +1,4 @@
-#include "../headers/signals.hpp"
-#include <iostream>
+#include "signals.hpp"
 
 // Global flag for graceful shutdown
 volatile bool g_shutdown = false;

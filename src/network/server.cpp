@@ -1,5 +1,5 @@
-#include "../headers/server.hpp"
-#include "../headers/signals.hpp"
+#include "server.hpp"
+#include "signals.hpp"
 
 // Define MSG_NOSIGNAL if not available (macOS compatibility)
 #ifndef MSG_NOSIGNAL

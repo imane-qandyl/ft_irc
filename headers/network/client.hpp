@@ -4,6 +4,7 @@
 #include <string>
 #include <unistd.h>
 #include <set>
+#include <iostream>
 
 class Client {
 public:

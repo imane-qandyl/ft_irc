@@ -5,9 +5,13 @@ SRCDIR = src
 HEADERDIR = headers
 OBJDIR = obj
 
-SOURCES = main.cpp server.cpp client.cpp signals.cpp
-SRCS = $(addprefix $(SRCDIR)/, $(SOURCES))
-OBJS = $(addprefix $(OBJDIR)/, $(SOURCES:.cpp=.o))
+# Find all .cpp files recursively in src directory
+SRCS = $(shell find $(SRCDIR) -name "*.cpp")
+OBJS = $(SRCS:$(SRCDIR)/%.cpp=$(OBJDIR)/%.o)
+
+# Find all header directories recursively
+HEADER_DIRS = $(shell find $(HEADERDIR) -type d)
+INCLUDE_FLAGS = $(addprefix -I, $(HEADER_DIRS))
 
 all: $(NAME)
 
@@ -15,8 +19,8 @@ $(NAME): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $(NAME) $(OBJS)
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.cpp
-	@mkdir -p $(OBJDIR)
-	$(CXX) $(CXXFLAGS) -I$(HEADERDIR) -c $< -o $@
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INCLUDE_FLAGS) -c $< -o $@
 
 clean:
 	rm -rf $(OBJDIR)
