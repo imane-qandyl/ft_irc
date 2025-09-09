@@ -21,14 +21,14 @@ void Server::setupSocket() {
     struct addrinfo hints, *servinfo, *p;// will point to the results
     int yes = 1;
     int rv;
-    char portStr[16];
+    // removed char portStr[16];
     std::memset(&hints, 0, sizeof hints);// make sure the struct is empty
     hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE; // Use my IP
 
-    snprintf(portStr, sizeof(portStr), "%d", _port);
-    if ((rv = getaddrinfo(NULL, portStr, &hints, &servinfo)) != 0) {
+    std::string portStr = std::to_string(_port);
+    if ((rv = getaddrinfo(NULL, portStr.c_str(), &hints, &servinfo)) != 0) {
         std::cerr << "getaddrinfo: " << gai_strerror(rv) << std::endl;
         exit(1);
     }
