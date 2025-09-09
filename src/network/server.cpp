@@ -272,49 +272,11 @@ void Server::shutdownServer(std::vector<struct pollfd>& fds) {
 }
 
 void Server::processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds) {
-    std::istringstream iss(message);
-    std::string command;
-    iss >> command;
+    std::cout << "[DEBUG] Received from fd " << client_fd << ": " << message << std::endl;
     
-    // Convert to uppercase for case-insensitive comparison
-    std::transform(command.begin(), command.end(), command.begin(), ::toupper);
-    
-    if (command == "NICK") {
-        std::string nickname;
-        iss >> nickname;
-        if (!nickname.empty()) {
-            clients[client_fd].setNickname(nickname);
-            std::cout << "[INFO] Client fd " << client_fd << " set nickname to: " << nickname << std::endl;
-            
-            std::string response = ":" + std::string("server") + " 001 " + nickname + " :Welcome " + nickname + "!\r\n";
-            clients[client_fd].appendToSendBuffer(response);
-        }
-    }
-    else if (command == "USER") {
-        std::string username, hostname, servername, realname;
-        iss >> username >> hostname >> servername;
-        std::getline(iss, realname); // Rest of the line is realname
-        
-        if (!username.empty()) {
-            clients[client_fd].setUsername(username);
-            std::cout << "[INFO] Client fd " << client_fd << " set username to: " << username << std::endl;
-        }
-    }
-    else if (command == "PING") {
-        std::string server;
-        iss >> server;
-        std::string response = "PONG " + server + "\r\n";
-        clients[client_fd].appendToSendBuffer(response);
-        std::cout << "[DEBUG] Responded to PING from fd " << client_fd << std::endl;
-    }
-    else if (command == "QUIT") {
-        std::string response = ":" + std::string("server") + " ERROR :Closing Link\r\n";
-        clients[client_fd].appendToSendBuffer(response);
-        std::cout << "[INFO] Client fd " << client_fd << " requested quit" << std::endl;
-    }
-    else {
-        std::cout << "[DEBUG] Unknown command from fd " << client_fd << ": " << command << std::endl;
-    }
+    // Echo back for testing - remove IRC command processing
+    std::string response = "ECHO: " + message + "\r\n";
+    clients[client_fd].appendToSendBuffer(response);
     
     // Switch to POLLOUT if we have data to send
     for (size_t i = 1; i < fds.size(); ++i) {

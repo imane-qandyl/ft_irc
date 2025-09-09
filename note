@@ -54,3 +54,12 @@ Implementing IRC commands: NICK, USER, JOIN, PART, PRIVMSG, QUIT, etc.
 Channel management (Channel class, channel.cpp)
 Operator commands: KICK, INVITE, TOPIC, MODE
 User and channel permissions
+
+
+
+
+
+
+IRC protocol commands (JOIN, PART, PRIVMSG, etc.)
+Channel management
+User permissions and operator commands

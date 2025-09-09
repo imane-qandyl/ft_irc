@@ -5,19 +5,18 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <poll.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <cstring>
 #include <cerrno>
-#include <sys/socket.h>
-#include <netdb.h>
-#include <fcntl.h>
-#include <poll.h>
-#include <unistd.h>
-#include <cstdlib>
+#include <ctime>
 #include <sstream>
 #include <algorithm>
-#include <cctype>
-#include <time.h>
-#include <arpa/inet.h>
 #include "client.hpp"
 
 class Server {
@@ -25,10 +24,15 @@ private:
     int _port;
     std::string _password;
     int _server_fd;
+
+public:
+    Server(int port, const std::string& password);
+    ~Server();
     
-    void processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds);
+    void setupSocket();
+    void run();
     
-    // Helper methods for run()
+private:
     void initializeServer(std::vector<struct pollfd>& fds);
     bool handlePollError(int ret);
     void handleClientTimeouts(std::map<int, Client>& clients, std::map<int, time_t>& client_last_activity, 
@@ -44,13 +48,7 @@ private:
                            std::vector<struct pollfd>& fds, time_t current_time, size_t index);
     void getClientIP(const struct sockaddr_storage& their_addr, char* client_ip);
     void shutdownServer(std::vector<struct pollfd>& fds);
-
-public:
-    Server(int port, const std::string& password);
-    ~Server();
-    
-    void setupSocket();
-    void run();
+    void processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds);
 };
 
 #endif

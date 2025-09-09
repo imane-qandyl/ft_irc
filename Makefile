@@ -1,28 +1,28 @@
 NAME = ircserv
-
-CXXFLAGS = -std=c++98 -Wall -Wextra -Werror -Iheaders
-
-SRC = src/main.cpp\
-	 src/server.cpp\
-	 src/client.cpp\
-	 src/signals.cpp
-
-
-OBJ = $(SRC:.cpp=.o)
-
 CXX = c++
+CXXFLAGS = -Wall -Wextra -Werror -std=c++98
+SRCDIR = src
+HEADERDIR = headers
+OBJDIR = obj
 
-$(NAME): $(OBJ)
-	$(CXX) $(CXXFLAGS) $(OBJ) -o $(NAME)
+SOURCES = main.cpp server.cpp client.cpp signals.cpp
+SRCS = $(addprefix $(SRCDIR)/, $(SOURCES))
+OBJS = $(addprefix $(OBJDIR)/, $(SOURCES:.cpp=.o))
 
 all: $(NAME)
 
+$(NAME): $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $(NAME) $(OBJS)
+
+$(OBJDIR)/%.o: $(SRCDIR)/%.cpp
+	@mkdir -p $(OBJDIR)
+	$(CXX) $(CXXFLAGS) -I$(HEADERDIR) -c $< -o $@
 
 clean:
-	rm -rf $(OBJ)
+	rm -rf $(OBJDIR)
 
 fclean: clean
-	rm -rf $(NAME)
+	rm -f $(NAME)
 
 re: fclean all
 
