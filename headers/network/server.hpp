@@ -24,6 +24,13 @@
 #include "../commands/leave.hpp"
 #include "../commands/mode.hpp"
 #include "../commands/topic.hpp"  // Add this include
+#include "../commands/kick.hpp"  // Add this include
+#include "../commands/privmsg.hpp"
+#include "../commands/pass.hpp"
+#include "../commands/nick.hpp"
+#include "../commands/user.hpp"
+#include "../commands/ping.hpp"
+#include "../commands/quit.hpp"
 
 class Server {
 private:
@@ -48,6 +55,8 @@ public:
 
     Client* findClientByNickname(const std::string& nickname);
     void setCurrentClients(std::map<int, Client>* clients); // Add this line
+
+    const std::string& getPassword();
     
     
 private:
@@ -67,14 +76,7 @@ private:
     void getClientIP(const struct sockaddr_storage& their_addr, char* client_ip);
     void shutdownServer(std::vector<struct pollfd>& fds);
     void processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds);
-      // Add these new method declarations
-      void handlePassCommand(Client& client, const std::vector<std::string>& params);
-      void handleNickCommand(Client& client, const std::vector<std::string>& params);
-      void handleUserCommand(Client& client, const std::vector<std::string>& params);
-      void handlePingCommand(Client& client, const std::vector<std::string>& params);
-      void handleQuitCommand(Client& client, const std::vector<std::string>& params, 
-                            std::map<int, Client>& clients, std::vector<struct pollfd>& fds, int client_fd);
-      void checkClientRegistration(Client& client);
+
 };
 
 #endif

@@ -177,6 +177,6 @@ const std::string& Client::getHostname() const {
 
 // Message sending
 void Client::sendMessage(const std::string& message) {
-    std::cout << "[DEBUG] Sending message to fd " << _fd << ": " << message;
+    std::cout << "[DEBUG] Queuing message for fd " << _fd << " (" << _nickname << "): " << message.substr(0, message.find('\r')) << std::endl;
     appendToSendBuffer(message);
 }

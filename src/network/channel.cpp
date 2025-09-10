@@ -143,9 +143,11 @@ void Channel::broadcast(const std::string& message) {
 }
 
 void Channel::broadcast(const std::string& message, Client* exclude) {
+    std::cout << "[DEBUG] Broadcasting to " << _clients.size() << " clients in channel " << _name << std::endl;
     for (std::set<Client*>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
         if (*it != exclude) {
             (*it)->sendMessage(message);
+            std::cout << "[DEBUG] Sent message to client " << (*it)->getNickname() << " (fd " << (*it)->getFd() << ")" << std::endl;
         }
     }
 }
