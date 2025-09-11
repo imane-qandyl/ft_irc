@@ -60,6 +60,9 @@ User and channel permissions
 
 
 
-IRC protocol commands (JOIN, PART, PRIVMSG, etc.)
-Channel management
-User permissions and operator commands
+(echo -e 'PASS mypassword\r\nNICK testnick\r\nUSER testuser 0 * :Test User\r\n'; sleep 1) | nc localhost 1024
+
+
+irssi
+/connect localhost 1024 mypassword
+/set nick testnick

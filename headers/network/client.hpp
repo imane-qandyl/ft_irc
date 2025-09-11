@@ -6,6 +6,17 @@
 #include <set>
 #include <iostream>
 #include "channel.hpp"
+#include <string>
+#include <unistd.h>
+#include <set>
+#include <iostream>
+#include "channel.hpp"
+
+enum clientState {
+    UNAUTHENTICATED,
+    AUTHENTICATED,
+    REGISTERED
+};
 // Forward declaration
 class Channel;
 
@@ -16,6 +27,10 @@ public:
     Client(const Client& other);              // Copy constructor
     Client& operator=(const Client& other);   // Assignment operator
     ~Client();
+
+    // State management
+    clientState getState() const;
+    void setState(clientState state);
 
     void markReceivedData();
     bool hasReceivedData() const;
@@ -81,6 +96,7 @@ private:
     std::set<Channel*> _channelPointers; // Track channel pointers
     bool _authenticated;
     bool _passwordProvided;
+    clientState _state;
 };
 
 #endif

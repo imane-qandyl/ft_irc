@@ -212,7 +212,7 @@ void Server::handleNewConnection(std::vector<struct pollfd>& fds, std::map<int, 
         clients.insert(std::make_pair(new_fd, Client(new_fd)));
         client_last_activity[new_fd] = current_time;
         
-        clients[new_fd].appendToSendBuffer("Welcome to the IRC server!\r\n");
+    // Do not send welcome here; send only after registration (see checkClientRegistration)
     }
 }
 
@@ -314,7 +314,6 @@ void Server::shutdownServer(std::vector<struct pollfd>& fds) {
 
 void Server::processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds) {
     setCurrentClients(&clients);
-    std::cout << "[DEBUG] Received from fd " << client_fd << ": " << message << std::endl;
     
     // Parse the IRC command
     std::istringstream iss(message);
@@ -404,10 +403,8 @@ void Server::handlePassCommand(Client& client, const std::vector<std::string>& p
     
     if (params[0] == _password) {
         client.setPasswordProvided(true);
-        std::cout << "[DEBUG] Client " << client.getFd() << " provided correct password" << std::endl;
     } else {
         client.sendMessage("464 :Password incorrect\r\n");
-        std::cout << "[DEBUG] Client " << client.getFd() << " provided incorrect password" << std::endl;
     }
 }
 
@@ -425,19 +422,6 @@ void Server::handleNickCommand(Client& client, const std::vector<std::string>& p
         return;
     }
     
-    // TODO: Check if nickname is already in use
-    
-    std::string oldNick = client.getNickname();
-    client.setNickname(nick);
-    
-    if (oldNick.empty()) {
-        std::cout << "[DEBUG] Client " << client.getFd() << " set nickname to " << nick << std::endl;
-    } else {
-        std::cout << "[DEBUG] Client " << client.getFd() << " changed nickname from " << oldNick << " to " << nick << std::endl;
-        // Notify about nick change
-        client.sendMessage(":" + oldNick + " NICK " + nick + "\r\n");
-    }
-    
     checkClientRegistration(client);
 }
 
@@ -450,9 +434,7 @@ void Server::handleUserCommand(Client& client, const std::vector<std::string>& p
     client.setUsername(params[0]);
     client.setHostname("localhost"); // Simplified
     client.setRealname(params[3]);
-    
-    std::cout << "[DEBUG] Client " << client.getFd() << " set user info: " << params[0] << std::endl;
-    
+        
     checkClientRegistration(client);
 }
 
@@ -486,17 +468,19 @@ void Server::handleQuitCommand(Client& client, const std::vector<std::string>& p
 }
 
 void Server::checkClientRegistration(Client& client) {
+    // Only allow registration if password is provided and both nick and user are set
+    std::cout << "[DEBUG] checkClientRegistration: hasPasswordProvided=" << client.hasPasswordProvided()
+              << ", nick='" << client.getNickname() << "', user='" << client.getUsername() << "', state=" << client.getState() << std::endl;
     if (client.hasPasswordProvided() && !client.getNickname().empty() && !client.getUsername().empty()) {
-        if (!client.isAuthenticated()) {
-            client.setAuthenticated(true);
-            
+        if (client.getState() != REGISTERED) {
+            std::cout << "[DEBUG] Registering client " << client.getFd() << std::endl;
+            client.setState(REGISTERED);
             // Send welcome messages
             std::string nick = client.getNickname();
             client.sendMessage("001 " + nick + " :Welcome to the IRC Network " + nick + "\r\n");
             client.sendMessage("002 " + nick + " :Your host is localhost, running version 1.0\r\n");
             client.sendMessage("003 " + nick + " :This server was created today\r\n");
             client.sendMessage("004 " + nick + " localhost 1.0 o o\r\n");
-            
             std::cout << "[INFO] Client " << client.getFd() << " (" << nick << ") successfully registered" << std::endl;
         }
     }

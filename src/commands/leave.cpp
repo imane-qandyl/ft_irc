@@ -1,8 +1,8 @@
 #include "../../headers/commands/leave.hpp"
 
 void Leave::execute(Server& server, Client& client, const std::vector<std::string>& params) {
-    // Check if client is authenticated
-    if (!client.isAuthenticated()) {
+    // Check if client is fully registered
+    if (client.getState() != REGISTERED) {
         client.sendMessage("451 * :You have not registered\r\n");
         return;
     }
