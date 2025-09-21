@@ -11,7 +11,7 @@ Server::Server(int port, const std::string& password)
     setupSignalHandlers();
 }
 
-// Add this method:
+// Add this method:Client objects are created and stored in the clients map 
 void Server::setCurrentClients(std::map<int, Client>* clients) {
     _currentClients = clients;
 }
@@ -289,6 +289,7 @@ bool Server::handleClientReceive(int client_fd, std::map<int, Client>& clients, 
     
     if (n > 0) {
         buf[n] = '\0';
+        std::cout << "[DEBUG] fd " << client_fd << " received " << n << " bytes: \"" << std::string(buf, n) << "\"" << std::endl;
         client_last_activity[client_fd] = current_time;
         clients[client_fd].appendToBuffer(std::string(buf, n));
         clients[client_fd].markReceivedData();
@@ -331,6 +332,8 @@ void Server::shutdownServer(std::vector<struct pollfd>& fds) {
 void Server::processIRCCommand(int client_fd, const std::string& message, std::map<int, Client>& clients, std::vector<struct pollfd>& fds) {
     setCurrentClients(&clients);
     
+    // Log the received message
+    std::cout << "[CMD] fd " << client_fd << " -> " << message.substr(0, message.find('\r')) << std::endl;
 
     // Parse the IRC command
     std::istringstream iss(message);
@@ -423,14 +426,16 @@ void Server::processIRCCommand(int client_fd, const std::string& message, std::m
         // Unknown command
         client.sendMessage("421 " + client.getNickname() + " " + command + " :Unknown command\r\n");
     }
+    
     setCurrentClients(NULL);
- // IMPORTANT: Set POLLOUT for ALL clients that have data to send, not just the current one
+    
+    // IMPORTANT: Set POLLOUT for ALL clients that have data to send, not just the current one
     for (size_t i = 1; i < fds.size(); ++i) {
         int fd = fds[i].fd;
         if (clients.find(fd) != clients.end() && clients[fd].hasDataToSend()) {
             fds[i].events = POLLIN | POLLOUT;
         }
-}
+    }
 }
 
 

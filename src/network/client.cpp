@@ -1,4 +1,6 @@
 #include "client.hpp"
+#include <sys/socket.h>
+#include <errno.h>
 
 Client::Client() : _fd(-1), _receivedData(false), _authenticated(false), _passwordProvided(false) {
     std::cout << "Client default constructor called" << std::endl;
@@ -61,17 +63,26 @@ void Client::appendToBuffer(const std::string& data) {
 }
 
 bool Client::hasCompleteMessage() const {
-    return _buffer.find("\r\n") != std::string::npos;
+    // IRC standard is \r\n, but also accept \n for compatibility with tools like nc
+    return _buffer.find("\r\n") != std::string::npos || _buffer.find("\n") != std::string::npos;
 }
 
 std::string Client::extractMessage() {
     size_t pos = _buffer.find("\r\n");
+    size_t advance = 2;
+    
+    // If no \r\n found, look for just \n
+    if (pos == std::string::npos) {
+        pos = _buffer.find("\n");
+        advance = 1;
+    }
+    
     if (pos == std::string::npos) {
         return "";
     }
     
     std::string msg = _buffer.substr(0, pos);
-    _buffer.erase(0, pos + 2);
+    _buffer.erase(0, pos + advance);
     return msg;
 }
 
@@ -165,5 +176,19 @@ const std::string& Client::getHostname() const {
 
 // Message sending
 void Client::sendMessage(const std::string& message) {
+    // Log the response being sent
+    std::cout << "[RESP] fd " << _fd << " <- " << message.substr(0, message.find('\r')) << std::endl;
+    
     appendToSendBuffer(message);
+    
+    // Try immediate send to avoid buffering delays
+    if (hasDataToSend()) {
+        std::string& sendBuf = getSendBuffer();
+        ssize_t sent = send(_fd, sendBuf.c_str(), sendBuf.size(), 0);
+        
+        if (sent > 0) {
+            removeSentFromBuffer(sent);
+        }
+        // If send fails, data stays in buffer for later POLLOUT handling
+    }
 }
