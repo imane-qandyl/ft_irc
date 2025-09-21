@@ -5,7 +5,6 @@ Client::Client() : _fd(-1), _receivedData(false), _authenticated(false), _passwo
 }
 
 Client::Client(int fd) : _fd(fd), _receivedData(false), _authenticated(false), _passwordProvided(false) {
-    std::cout << "Client constructor called for fd " << fd << std::endl;
 }
 
 // Copy constructor - don't close fd in the source object
@@ -16,7 +15,6 @@ Client::Client(const Client& other)
       _realname(other._realname), _hostname(other._hostname),
       _channels(other._channels), _authenticated(other._authenticated),
       _passwordProvided(other._passwordProvided) {
-    std::cout << "Client copy constructor called for fd " << _fd << std::endl;
 }
 
 // Assignment operator - don't close fd in the source object
@@ -41,7 +39,6 @@ Client& Client::operator=(const Client& other) {
 
 Client::~Client() {
     // Don't automatically close fd in destructor - let server manage it
-    std::cout << "Client destructor called for fd " << _fd << std::endl;
 }
 
 void Client::markReceivedData() { _receivedData = true; }
